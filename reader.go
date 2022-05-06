@@ -10,24 +10,21 @@ import "io"
 type limitedReader struct {
 	r        io.Reader
 	n        int64
-	complete bool
+	complete error
 }
 
 // New returns a Reader that reads from r
 // but stops with ReaderBoundsExceededError after n bytes.
 // The underlying implementation is a *limitedReader.
 func New(r io.Reader, n int64) io.Reader {
-	return &limitedReader{r, n + 1, false}
+	return &limitedReader{r, n, nil}
 }
 
 func (l *limitedReader) Read(p []byte) (int, error) {
-	if l.n <= 0 {
-		if l.complete {
-			return 0, io.EOF
-		} else {
-			return 0, ReaderBoundsExceededError{}
-		}
+	if l.complete != nil {
+		return 0, l.complete
 	}
+
 	if int64(len(p)) > l.n {
 		p = p[0:l.n]
 	}
@@ -35,11 +32,9 @@ func (l *limitedReader) Read(p []byte) (int, error) {
 	l.n -= int64(n)
 
 	if err != nil {
-		if err == io.EOF {
-			l.complete = true
-		}
+		l.complete = err
 	} else {
-		if l.n <= 0 {
+		if len(p) == 0 {
 			err = ReaderBoundsExceededError{}
 		}
 	}

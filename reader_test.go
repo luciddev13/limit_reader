@@ -1,6 +1,7 @@
 package limit_reader
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -9,67 +10,111 @@ import (
 var text = "this is a string that is 49 characters in length."
 var textLen = int64(len(text))
 
-func TestLimitedReadAllReader_Read_Short(t *testing.T) {
-	r := strings.NewReader(text)
-	lr := New(r, textLen*2)
-	buf, err := io.ReadAll(lr)
-	if err != nil {
-		t.Errorf("expected no error, received: %v", err)
-		return
-	}
-	compareBuffers(t, text, string(buf))
+func TestLimitedReader_ReadAll_LongBuffer(t *testing.T) {
+	doReadAllTest(t, textLen*2)
 }
 
-func TestLimitedReadAllReader_Read_ShortBy1(t *testing.T) {
-	r := strings.NewReader(text)
-	lr := New(r, textLen+1)
-	buf, err := io.ReadAll(lr)
-	if err != nil {
-		t.Errorf("expected no error, received: %v", err)
-		return
-	}
-	compareBuffers(t, text, string(buf))
+func TestLimitedReader_Read_LongBuffer(t *testing.T) {
+	doReadTest(t, textLen*2)
 }
 
-func TestLimitedReadAllReader_Read_Long(t *testing.T) {
+func TestLimitedReader_ReadAll_LongBufferBy1(t *testing.T) {
+	doReadAllTest(t, textLen+1)
+}
+
+func TestLimitedReader_Read_LongBufferBy1(t *testing.T) {
+	doReadTest(t, textLen+1)
+}
+
+func TestLimitedReader_ReadAll_ShortBuffer(t *testing.T) {
+	doReadAllTest(t, textLen/2)
+}
+
+func TestLimitedReader_Read_ShortBuffer(t *testing.T) {
+	doReadTest(t, textLen/2)
+}
+
+func TestLimitedReader_ReadAll_ShortBufferBy1(t *testing.T) {
+	doReadAllTest(t, textLen-1)
+}
+
+func TestLimitedReader_Read_ShortBufferBy1(t *testing.T) {
+	doReadTest(t, textLen-1)
+}
+
+func TestLimitedReader_ReadAll_ExactBuffer(t *testing.T) {
+	doReadAllTest(t, textLen)
+}
+
+func TestLimitedReader_Read_ExactBuffer(t *testing.T) {
+	doReadTest(t, textLen)
+}
+
+func doReadTest(t *testing.T, readLimit int64) {
 	r := strings.NewReader(text)
-	lr := New(r, textLen/2)
-	_, err := io.ReadAll(lr)
-	if err == nil {
-		t.Errorf("expected error, received nil")
-		return
+	lr := New(r, readLimit)
+	rbuf := make([]byte, 10)
+	resultBuf := make([]byte, 0)
+	totalBytesRead := 0
+	var err error
+	var n int
+	for err == nil {
+		n, err = lr.Read(rbuf)
+		totalBytesRead += n
+		resultBuf = append(resultBuf, rbuf[:n]...)
 	}
-	if _, ok := err.(ReaderBoundsExceededError); !ok {
-		t.Errorf("expected a ReaderBoundsExceededError, received: %T", err)
+
+	if readLimit >= int64(len(text)) {
+		if int64(len(resultBuf)) != textLen {
+			t.Errorf("expected %d bytes read, got: %d", textLen, len(resultBuf))
+		}
+		compareBuffers(t, text, string(resultBuf))
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("expected no error, got: %v", err)
+		}
+	} else {
+		if int64(len(resultBuf)) != readLimit {
+			t.Errorf("expected %d bytes read, got: %d", readLimit, len(resultBuf))
+		}
+		compareBuffers(t, text[:readLimit], string(resultBuf))
+
+		if err == nil {
+			t.Errorf("expected error, received nil")
+		} else if !errors.Is(err, ReaderBoundsExceededError{}) {
+			t.Errorf("expected a ReaderBoundsExceededError, received: %T", err)
+		}
 	}
 }
 
-func TestLimitedReadAllReader_Read_LongBy1(t *testing.T) {
+func doReadAllTest(t *testing.T, readLimit int64) {
 	r := strings.NewReader(text)
-	lr := New(r, textLen-1)
-	_, err := io.ReadAll(lr)
-	if err == nil {
-		t.Errorf("expected error, received nil")
-		return
-	}
-	if _, ok := err.(ReaderBoundsExceededError); !ok {
-		t.Errorf("expected a ReaderBoundsExceededError, received: %T", err)
-	}
-}
+	lr := New(r, readLimit)
+	resultBuf, err := io.ReadAll(lr)
 
-func TestLimitedReadAllReader_Read_Exact(t *testing.T) {
-	r := strings.NewReader(text)
-	lr := New(r, textLen)
-	buf, err := io.ReadAll(lr)
-	if err != nil {
-		t.Errorf("expected no error, received: %v", err)
-		return
+	if readLimit >= int64(len(text)) {
+		if int64(len(resultBuf)) != textLen {
+			t.Errorf("expected %d bytes read, got: %d", textLen, len(resultBuf))
+		}
+		compareBuffers(t, text, string(resultBuf))
+		if err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+	} else {
+		if int64(len(resultBuf)) != readLimit {
+			t.Errorf("expected %d bytes read, got: %d", readLimit, len(resultBuf))
+		}
+		compareBuffers(t, text[:readLimit], string(resultBuf))
+
+		if err == nil {
+			t.Errorf("expected error, received nil")
+		} else if !errors.Is(err, ReaderBoundsExceededError{}) {
+			t.Errorf("expected a ReaderBoundsExceededError, received: %T", err)
+		}
 	}
-	compareBuffers(t, text, string(buf))
 }
 
 func compareBuffers(t *testing.T, expected, actual string) {
 	if expected != actual {
-		t.Errorf("buffers do not match, expected: %s, received: %s", expected, actual)
+		t.Errorf("buffers do not match, expected: \"%s\", received: \"%s\"", expected, actual)
 	}
 }
